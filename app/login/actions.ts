@@ -6,7 +6,7 @@ import { verifyPassword, setAuthCookie } from '@/lib/auth';
 export async function loginAction(formData: FormData) {
   const password = formData.get('password') as string;
 
-  if (!password || !verifyPassword(password)) {
+  if (verifyPassword(password)) {
     redirect('/login?error=1');
   }
 

@@ -4,8 +4,10 @@ import { verifyPassword, setAuthCookie, clearAuthCookie, verifyToken, getTokenFr
 export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
-    if (!password || !verifyPassword(password)) {
-      return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
+    const error = verifyPassword(password);
+    if (error) {
+      const status = error.includes('Too many') ? 429 : 401;
+      return NextResponse.json({ error }, { status });
     }
     await setAuthCookie();
     return NextResponse.json({ ok: true });

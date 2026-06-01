@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const subpath = searchParams.get('path');
-  const size = parseInt(searchParams.get('size') || '300');
+  const rawSize = parseInt(searchParams.get('size') || '300');
+  const size = Math.min(Math.max(rawSize, 50), 1920);
   const raw = searchParams.get('raw') === 'true';
 
   if (!subpath) {

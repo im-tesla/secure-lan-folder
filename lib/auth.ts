@@ -2,19 +2,48 @@ import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret');
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  return value;
+}
+
+const JWT_SECRET = new TextEncoder().encode(requireEnv('JWT_SECRET'));
 const COOKIE_NAME = 'auth_token';
 const TTL_HOURS = 24;
 
-export function getPasswordHash(): string {
-  const password = process.env.PASSWORD;
-  if (!password) throw new Error('PASSWORD env var not set');
-  return bcrypt.hashSync(password, 12);
-}
+// Pre-compute the password hash once at module load
+const PASSWORD_HASH = bcrypt.hashSync(requireEnv('PASSWORD'), 12);
 
-export function verifyPassword(password: string): boolean {
-  const hash = getPasswordHash();
-  return bcrypt.compareSync(password, hash);
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 10;
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+export function verifyPassword(password: string): string | null {
+  if (!password) return 'Password required';
+
+  const key = 'global';
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+
+  if (entry && now < entry.resetAt && entry.count >= MAX_ATTEMPTS) {
+    const minutesLeft = Math.ceil((entry.resetAt - now) / 60000);
+    return `Too many attempts. Try again in ${minutesLeft} minute${minutesLeft > 1 ? 's' : ''}.`;
+  }
+
+  if (!entry || now >= entry.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS });
+  } else {
+    entry.count++;
+  }
+
+  if (!bcrypt.compareSync(password, PASSWORD_HASH)) {
+    return 'Invalid password';
+  }
+
+  // Reset on success
+  loginAttempts.delete(key);
+  return null;
 }
 
 export async function createToken(): Promise<string> {
