@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listDirectory, deleteFile } from '@/lib/files';
+import { listDirectory, deleteFile, resolveSafePath } from '@/lib/files';
 import { verifyToken } from '@/lib/auth';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 async function checkAuth(request: NextRequest): Promise<boolean> {
   const token = request.cookies.get('auth_token')?.value;
@@ -20,6 +22,43 @@ export async function GET(request: NextRequest) {
   try {
     const listing = await listDirectory(subpath, sort);
     return NextResponse.json(listing);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (message.includes('Path traversal')) {
+      return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  if (!(await checkAuth(request))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const subpath = searchParams.get('path');
+
+    if (!subpath) {
+      return NextResponse.json({ error: 'Path required' }, { status: 400 });
+    }
+
+    const fullPath = resolveSafePath(subpath);
+    const dir = path.dirname(fullPath);
+    await fs.mkdir(dir, { recursive: true });
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await fs.writeFile(fullPath, buffer);
+
+    return NextResponse.json({ ok: true, name: file.name, size: file.size });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     if (message.includes('Path traversal')) {

@@ -1,16 +1,21 @@
 'use client';
 import { useState, useCallback } from 'react';
 import { useFiles } from '@/hooks/use-files';
+import { TabBar } from '@/components/tab-bar';
 import { SortBar } from '@/components/sort-bar';
 import { BreadcrumbNav } from '@/components/breadcrumb-nav';
 import { FileGrid } from '@/components/file-grid';
 import { FileList } from '@/components/file-list';
 import { Lightbox } from '@/components/lightbox';
 import { DeleteDialog } from '@/components/delete-dialog';
+import { UploadZone } from '@/components/upload-zone';
 import { FileEntry } from '@/lib/types';
 import { Shield } from 'lucide-react';
 
+type Tab = 'browse' | 'upload';
+
 export default function HomePage() {
+  const [tab, setTab] = useState<Tab>('browse');
   const [currentPath, setCurrentPath] = useState('/');
   const [sort, setSort] = useState('date');
   const [view, setView] = useState<'grid' | 'list'>('grid');
@@ -38,6 +43,12 @@ export default function HomePage() {
     mutate();
   }, [deleteTarget, currentPath, mutate]);
 
+  const handleUploadComplete = useCallback(() => {
+    mutate();
+  }, [mutate]);
+
+  const folderName = currentPath === '/' ? 'Files' : currentPath.split('/').filter(Boolean).pop() || 'Files';
+
   return (
     <div className="min-h-screen flex flex-col max-w-6xl mx-auto">
       {/* Header */}
@@ -46,77 +57,87 @@ export default function HomePage() {
           <Shield className="w-5 h-5 text-primary" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-3xl font-bold tracking-tight truncate">
-            {currentPath === '/' ? 'Files' : currentPath.split('/').filter(Boolean).pop()}
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight truncate">{folderName}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Secure LAN folder browser</p>
         </div>
       </div>
 
-      {/* Breadcrumb */}
-      <BreadcrumbNav path={currentPath} onNavigate={setCurrentPath} />
+      {/* Tab bar */}
+      <TabBar active={tab} onChange={setTab} />
 
-      {/* Sort + View */}
-      <SortBar
-        sort={sort}
-        onSortChange={(s) => {
-          setSort(s);
-          if (s === 'random') setRandomSeed(Date.now());
-        }}
-        view={view}
-        onViewChange={setView}
-      />
+      {/* Upload tab */}
+      {tab === 'upload' && (
+        <div className="flex-1">
+          <UploadZone currentPath={currentPath} onUploadComplete={handleUploadComplete} />
+        </div>
+      )}
 
-      {/* Content */}
-      <main className="flex-1 p-2">
-        {isLoading && (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
+      {/* Browse tab */}
+      {tab === 'browse' && (
+        <>
+          <BreadcrumbNav path={currentPath} onNavigate={setCurrentPath} />
 
-        {!isLoading && !data && (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
-            <p className="text-xl font-medium">Could not load files</p>
-            <p className="text-sm">
-              {error ? String(error) : 'Check that FOLDER_PATH in .env.local exists and is readable.'}
-            </p>
-          </div>
-        )}
-
-        {!isLoading && data && view === 'grid' && (
-          <FileGrid
-            folders={data.folders}
-            files={data.files}
-            onFolderClick={(name) => {
-              const newPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
-              setCurrentPath(newPath);
+          <SortBar
+            sort={sort}
+            onSortChange={(s) => {
+              setSort(s);
+              if (s === 'random') setRandomSeed(Date.now());
             }}
-            onFileClick={handleFileClick}
-            onDelete={setDeleteTarget}
+            view={view}
+            onViewChange={setView}
           />
-        )}
 
-        {!isLoading && data && view === 'list' && (
-          <FileList
-            folders={data.folders}
-            files={data.files}
-            onFolderClick={(name) => {
-              const newPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
-              setCurrentPath(newPath);
-            }}
-            onFileClick={handleFileClick}
-            onDelete={setDeleteTarget}
-          />
-        )}
+          <main className="flex-1 p-2">
+            {isLoading && (
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
 
-        {!isLoading && data && data.folders.length === 0 && data.files.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <p className="text-xl font-medium">Empty folder</p>
-            <p className="text-base mt-2">No photos or videos here</p>
-          </div>
-        )}
-      </main>
+            {!isLoading && !data && (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
+                <p className="text-xl font-medium">Could not load files</p>
+                <p className="text-sm">
+                  {error ? String(error) : 'Check that FOLDER_PATH in .env.local exists and is readable.'}
+                </p>
+              </div>
+            )}
+
+            {!isLoading && data && view === 'grid' && (
+              <FileGrid
+                folders={data.folders}
+                files={data.files}
+                onFolderClick={(name) => {
+                  const newPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+                  setCurrentPath(newPath);
+                }}
+                onFileClick={handleFileClick}
+                onDelete={setDeleteTarget}
+              />
+            )}
+
+            {!isLoading && data && view === 'list' && (
+              <FileList
+                folders={data.folders}
+                files={data.files}
+                onFolderClick={(name) => {
+                  const newPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+                  setCurrentPath(newPath);
+                }}
+                onFileClick={handleFileClick}
+                onDelete={setDeleteTarget}
+              />
+            )}
+
+            {!isLoading && data && data.folders.length === 0 && data.files.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <p className="text-xl font-medium">Empty folder</p>
+                <p className="text-base mt-2">No photos or videos here</p>
+              </div>
+            )}
+          </main>
+        </>
+      )}
 
       {/* Overlays */}
       {lightboxIndex !== null && (
