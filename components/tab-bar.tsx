@@ -1,8 +1,8 @@
 'use client';
 import { cn } from '@/lib/utils';
-import { FolderOpen, Upload } from 'lucide-react';
+import { FolderOpen, Upload, BarChart3 } from 'lucide-react';
 
-type Tab = 'browse' | 'upload';
+type Tab = 'browse' | 'upload' | 'stats';
 
 interface TabBarProps {
   active: Tab;
@@ -12,6 +12,7 @@ interface TabBarProps {
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'browse', label: 'Browse', icon: <FolderOpen className="w-4 h-4" /> },
   { id: 'upload', label: 'Upload', icon: <Upload className="w-4 h-4" /> },
+  { id: 'stats', label: 'Stats', icon: <BarChart3 className="w-4 h-4" /> },
 ];
 
 export function TabBar({ active, onChange }: TabBarProps) {
