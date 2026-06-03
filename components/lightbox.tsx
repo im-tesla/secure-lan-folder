@@ -120,13 +120,14 @@ export function Lightbox({ media, initialIndex, onClose, onNavigate, onDelete }:
         {current.isVideo ? (
           <video
             ref={videoRef}
-            src={getVideoSrc(current)}
             controls
             playsInline
             preload="metadata"
             disableRemotePlayback
             className="max-w-full max-h-full object-contain touch-auto"
-          />
+          >
+            <source src={getVideoSrc(current)} type={current.mime} />
+          </video>
         ) : (
           <img
             src={getFullSrc(current)}

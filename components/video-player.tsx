@@ -39,7 +39,6 @@ export function VideoPlayer({ file, currentPath, onClose }: VideoPlayerProps) {
             </Button>
           </div>
           <video
-            src={videoUrl}
             controls
             autoPlay
             playsInline
@@ -47,6 +46,7 @@ export function VideoPlayer({ file, currentPath, onClose }: VideoPlayerProps) {
             disableRemotePlayback
             className="w-full max-h-[85vh]"
           >
+            <source src={videoUrl} type={file.mime} />
             Your browser does not support the video tag.
           </video>
         </div>
