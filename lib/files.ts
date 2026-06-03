@@ -16,11 +16,11 @@ function getMime(ext: string): string {
   return mimes[ext.toLowerCase()] || 'application/octet-stream';
 }
 
-function isVideo(ext: string): boolean {
+export function isVideo(ext: string): boolean {
   return ['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext.toLowerCase());
 }
 
-function isImage(ext: string): boolean {
+export function isImage(ext: string): boolean {
   return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff'].includes(ext.toLowerCase());
 }
 
