@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getThumbnail, getRawFile } from '@/lib/thumbnails';
+import { getThumbnail } from '@/lib/thumbnails';
 import { verifyToken } from '@/lib/auth';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
+import { Readable } from 'stream';
+import { resolveSafePath } from '@/lib/files';
+import path from 'path';
 
 export async function GET(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
@@ -20,61 +25,68 @@ export async function GET(request: NextRequest) {
 
   try {
     if (raw) {
-      const { buffer, contentType } = await getRawFile(subpath);
-      const fileSize = buffer.length;
+      const fullPath = resolveSafePath(subpath);
+      const ext = path.extname(fullPath).toLowerCase();
+      const mimes: Record<string, string> = {
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+        '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+        '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
+      };
+      const contentType = mimes[ext] || 'application/octet-stream';
+
+      const fileStat = await stat(fullPath);
+      const fileSize = fileStat.size;
+
       const rangeHeader = request.headers.get('range');
 
+      let status = 200;
+      let start = 0;
+      let end = fileSize - 1;
+
       if (rangeHeader) {
-        // Parse Range header: "bytes=start-end" or "bytes=start-" or "bytes=-suffix"
-        const parts = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parts[0] ? parseInt(parts[0], 10) : 0;
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+        if (match) {
+          const s = match[1] ? parseInt(match[1], 10) : 0;
+          const e = match[2] ? parseInt(match[2], 10) : fileSize - 1;
 
-        // Handle suffix range: "bytes=-N" means last N bytes
-        let chunkStart: number;
-        let chunkEnd: number;
-        if (rangeHeader.includes('bytes=-') && !rangeHeader.includes('bytes=0-') && rangeHeader.split('-')[0] === 'bytes=') {
-          // Suffix range: "bytes=-2048"
-          chunkStart = Math.max(fileSize - start, 0); // start here is actually the suffix length
-          chunkEnd = fileSize - 1;
-        } else {
-          chunkStart = Math.max(start, 0);
-          chunkEnd = Math.min(end, fileSize - 1);
+          if (match[1] === '' && match[2] !== '') {
+            // Suffix range: "bytes=-N"
+            start = Math.max(fileSize - e, 0);
+            end = fileSize - 1;
+          } else {
+            start = Math.max(s, 0);
+            end = Math.min(e, fileSize - 1);
+          }
+
+          if (start > end || start >= fileSize) {
+            return new NextResponse('Range Not Satisfiable', {
+              status: 416,
+              headers: { 'Content-Range': `bytes */${fileSize}` },
+            });
+          }
+
+          status = 206;
         }
-
-        if (chunkStart > chunkEnd || chunkStart >= fileSize) {
-          return new NextResponse('Range Not Satisfiable', {
-            status: 416,
-            headers: {
-              'Content-Range': `bytes */${fileSize}`,
-            },
-          });
-        }
-
-        const chunkSize = chunkEnd - chunkStart + 1;
-        const chunk = buffer.subarray(chunkStart, chunkEnd + 1);
-
-        return new NextResponse(new Uint8Array(chunk), {
-          status: 206,
-          headers: {
-            'Content-Type': contentType,
-            'Content-Range': `bytes ${chunkStart}-${chunkEnd}/${fileSize}`,
-            'Content-Length': String(chunkSize),
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'no-cache',
-          },
-        });
       }
 
-      // No range header — return full file, but signal range support
-      return new NextResponse(new Uint8Array(buffer), {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(fileSize),
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-cache',
-        },
-      });
+      const chunkSize = end - start + 1;
+      const nodeStream = createReadStream(fullPath, { start, end });
+      const webStream = Readable.toWeb(nodeStream);
+
+      const headers: Record<string, string> = {
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(chunkSize),
+        'Cache-Control': 'no-cache',
+      };
+
+      if (status === 206) {
+        headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
+      }
+
+      // TypeScript: Node.js ReadableStream is runtime-compatible with Web ReadableStream
+      return new Response(webStream as unknown as ReadableStream, { status, headers });
     }
 
     const { buffer, contentType } = await getThumbnail(subpath, size);
