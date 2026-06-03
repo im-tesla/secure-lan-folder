@@ -9,10 +9,11 @@ import { FileList } from '@/components/file-list';
 import { Lightbox } from '@/components/lightbox';
 import { DeleteDialog } from '@/components/delete-dialog';
 import { UploadZone } from '@/components/upload-zone';
+import { StatsPanel } from '@/components/stats-panel';
 import { FileEntry } from '@/lib/types';
 import { Shield } from 'lucide-react';
 
-type Tab = 'browse' | 'upload';
+type Tab = 'browse' | 'upload' | 'stats';
 
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>('browse');
@@ -71,6 +72,9 @@ export default function HomePage() {
           <UploadZone currentPath={currentPath} onUploadComplete={handleUploadComplete} />
         </div>
       )}
+
+      {/* Stats tab */}
+      {tab === 'stats' && <StatsPanel />}
 
       {/* Browse tab */}
       {tab === 'browse' && (
