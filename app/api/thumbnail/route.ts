@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getThumbnail } from '@/lib/thumbnails';
 import { verifyToken } from '@/lib/auth';
-import { createReadStream } from 'fs';
-import { stat } from 'fs/promises';
-import { Readable } from 'stream';
 import { resolveSafePath } from '@/lib/files';
+import { promises as fs } from 'fs';
 import path from 'path';
+
+const MIME_MAP: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp', '.tiff': 'image/tiff',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
+};
 
 export async function GET(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
@@ -25,68 +31,7 @@ export async function GET(request: NextRequest) {
 
   try {
     if (raw) {
-      const fullPath = resolveSafePath(subpath);
-      const ext = path.extname(fullPath).toLowerCase();
-      const mimes: Record<string, string> = {
-        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-        '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
-        '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
-        '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
-      };
-      const contentType = mimes[ext] || 'application/octet-stream';
-
-      const fileStat = await stat(fullPath);
-      const fileSize = fileStat.size;
-
-      const rangeHeader = request.headers.get('range');
-
-      let status = 200;
-      let start = 0;
-      let end = fileSize - 1;
-
-      if (rangeHeader) {
-        const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
-        if (match) {
-          const s = match[1] ? parseInt(match[1], 10) : 0;
-          const e = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-
-          if (match[1] === '' && match[2] !== '') {
-            // Suffix range: "bytes=-N"
-            start = Math.max(fileSize - e, 0);
-            end = fileSize - 1;
-          } else {
-            start = Math.max(s, 0);
-            end = Math.min(e, fileSize - 1);
-          }
-
-          if (start > end || start >= fileSize) {
-            return new NextResponse('Range Not Satisfiable', {
-              status: 416,
-              headers: { 'Content-Range': `bytes */${fileSize}` },
-            });
-          }
-
-          status = 206;
-        }
-      }
-
-      const chunkSize = end - start + 1;
-      const nodeStream = createReadStream(fullPath, { start, end });
-      const webStream = Readable.toWeb(nodeStream);
-
-      const headers: Record<string, string> = {
-        'Content-Type': contentType,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(chunkSize),
-        'Cache-Control': 'no-cache',
-      };
-
-      if (status === 206) {
-        headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
-      }
-
-      // TypeScript: Node.js ReadableStream is runtime-compatible with Web ReadableStream
-      return new Response(webStream as unknown as ReadableStream, { status, headers });
+      return serveRawFile(subpath, request);
     }
 
     const { buffer, contentType } = await getThumbnail(subpath, size);
@@ -100,4 +45,78 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function serveRawFile(subpath: string, request: NextRequest): Promise<Response> {
+  const fullPath = resolveSafePath(subpath);
+  const buffer = await fs.readFile(fullPath);
+  const fileSize = buffer.length;
+  const ext = path.extname(fullPath).toLowerCase();
+  const contentType = MIME_MAP[ext] || 'application/octet-stream';
+
+  const rangeHeader = request.headers.get('range');
+
+  if (!rangeHeader) {
+    // Full file — signal range support so Safari will send Range next time
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  // Parse Range: "bytes=start-end" | "bytes=start-" | "bytes=-suffix"
+  const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+  if (!match) {
+    // Unparseable range — return full file
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  let start: number;
+  let end: number;
+
+  if (match[1] === '' && match[2] !== '') {
+    // Suffix range: "bytes=-N" → last N bytes
+    const suffixLen = parseInt(match[2], 10);
+    start = Math.max(fileSize - suffixLen, 0);
+    end = fileSize - 1;
+  } else {
+    start = match[1] ? parseInt(match[1], 10) : 0;
+    end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+    if (start < 0) start = 0;
+    if (end >= fileSize) end = fileSize - 1;
+  }
+
+  if (start > end || start >= fileSize) {
+    return new Response('', {
+      status: 416,
+      headers: {
+        'Content-Range': `bytes */${fileSize}`,
+      },
+    });
+  }
+
+  const chunk = buffer.subarray(start, end + 1);
+
+  return new Response(chunk, {
+    status: 206,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': String(chunk.length),
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
