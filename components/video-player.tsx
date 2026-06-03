@@ -42,8 +42,10 @@ export function VideoPlayer({ file, currentPath, onClose }: VideoPlayerProps) {
             src={videoUrl}
             controls
             autoPlay
-            className="w-full max-h-[85vh]"
             playsInline
+            preload="metadata"
+            disableRemotePlayback
+            className="w-full max-h-[85vh]"
           >
             Your browser does not support the video tag.
           </video>

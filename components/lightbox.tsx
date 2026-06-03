@@ -123,6 +123,8 @@ export function Lightbox({ media, initialIndex, onClose, onNavigate, onDelete }:
             src={getVideoSrc(current)}
             controls
             playsInline
+            preload="metadata"
+            disableRemotePlayback
             className="max-w-full max-h-full object-contain touch-auto"
           />
         ) : (
