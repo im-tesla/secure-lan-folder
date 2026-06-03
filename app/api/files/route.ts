@@ -36,11 +36,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // --- diagnostic logging ---
+  const contentType = request.headers.get('content-type') ?? 'missing';
+  const contentLength = request.headers.get('content-length') ?? 'missing';
+  console.log('[UPLOAD DIAG] Content-Type:', contentType);
+  console.log('[UPLOAD DIAG] Content-Length:', contentLength);
+
   try {
     const formData = await request.formData();
     const file = formData.get('file');
 
     if (!file || !(file instanceof File)) {
+      // If formData parsed but no file, show what keys were present
+      const keys = Array.from(formData.keys());
+      console.log('[UPLOAD DIAG] FormData parsed OK but no file. Keys present:', keys);
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
@@ -58,9 +67,28 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(fullPath, buffer);
 
+    console.log('[UPLOAD DIAG] Success — file:', file.name, 'size:', file.size);
     return NextResponse.json({ ok: true, name: file.name, size: file.size });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    const stack = error instanceof Error ? error.stack : '(no stack)';
+    console.error('[UPLOAD DIAG] FAILED:', message);
+    console.error('[UPLOAD DIAG] Stack:', stack);
+
+    // If formData failed, try reading raw body to see what we actually received
+    try {
+      const rawBytes = await request.arrayBuffer();
+      console.log('[UPLOAD DIAG] Raw body size (via arrayBuffer):', rawBytes.byteLength, 'bytes');
+      // Peek at first 200 bytes to see if the multipart structure looks correct
+      const peek = Buffer.from(rawBytes).toString('utf-8', 0, Math.min(200, rawBytes.byteLength));
+      console.log('[UPLOAD DIAG] Body peek (first 200 chars):', peek);
+      // Check for closing boundary in last 100 bytes
+      const tail = Buffer.from(rawBytes).subarray(Math.max(0, rawBytes.byteLength - 100)).toString('utf-8');
+      console.log('[UPLOAD DIAG] Body tail (last 100 chars):', tail);
+    } catch (rawErr) {
+      console.error('[UPLOAD DIAG] Could not read raw body either:', rawErr);
+    }
+
     if (message.includes('Path traversal')) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }
